@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Absensi Karyawan</title>
+<style>
+  :root{
+    --bg:#f1f5f9; --card:#fff; --text:#0f172a; --muted:#64748b; --line:#e2e8f0;
+    --primary:#0f766e; --primary-d:#115e59; --ok:#16a34a; --warn:#d97706; --bad:#dc2626;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+  .wrap{max-width:480px;margin:0 auto;padding:16px}
+  .card{background:var(--card);border-radius:16px;padding:18px;margin-bottom:14px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+  h1{font-size:20px;margin:0 0 4px}
+  h2{font-size:15px;margin:0 0 10px}
+  .muted{color:var(--muted);font-size:13px}
+  label{display:block;font-size:13px;font-weight:600;margin:12px 0 4px}
+  input,select,textarea{width:100%;padding:12px;border:1px solid var(--line);border-radius:10px;font:inherit;background:#fff}
+  input:focus,select:focus,textarea:focus{outline:2px solid var(--primary);border-color:transparent}
+  button{font:inherit;font-weight:600;border:0;border-radius:12px;padding:13px 16px;cursor:pointer;background:var(--primary);color:#fff;width:100%}
+  button:hover:not(:disabled){background:var(--primary-d)}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  button.ghost{background:transparent;color:var(--primary);border:1px solid var(--line)}
+  button.small{width:auto;padding:8px 12px;font-size:13px}
+  .row{display:flex;gap:10px}
+  .row>*{flex:1}
+  .top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+  .clock{text-align:center;padding:6px 0 2px}
+  .clock .t{font-size:40px;font-weight:700;letter-spacing:1px;font-variant-numeric:tabular-nums}
+  .loc{display:flex;gap:10px;align-items:flex-start;padding:12px;border-radius:12px;background:#f8fafc;border:1px solid var(--line);margin:10px 0 14px}
+  .dot{width:12px;height:12px;border-radius:50%;margin-top:4px;flex:none;background:var(--muted)}
+  .dot.ok{background:var(--ok)} .dot.bad{background:var(--bad)} .dot.warn{background:var(--warn)}
+  .btns{margin-top:4px}
+  .btns button.in{background:var(--ok)} .btns button.out{background:#2563eb}
+  .hist{list-style:none;margin:0;padding:0}
+  .hist li{display:flex;justify-content:space-between;gap:8px;padding:10px 0;border-bottom:1px solid var(--line)}
+  .hist li:last-child{border-bottom:0}
+  .badge{font-size:12px;font-weight:600;padding:3px 9px;border-radius:99px;background:#e2e8f0;white-space:nowrap;align-self:center}
+  .badge.good{background:#dcfce7;color:#166534} .badge.late{background:#fef3c7;color:#92400e} .badge.info{background:#dbeafe;color:#1e40af}
+  .hidden{display:none!important}
+  .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);max-width:90%;padding:12px 18px;border-radius:12px;
+    color:#fff;font-weight:600;z-index:10;box-shadow:0 4px 14px rgba(0,0,0,.25)}
+  .toast.ok{background:var(--ok)} .toast.err{background:var(--bad)}
+  .err{color:var(--bad);font-size:13px;margin-top:8px;min-height:18px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- LOGIN -->
+  <section id="loginView" class="card hidden">
+    <h1>Absensi Karyawan</h1>
+    <p class="muted">Masuk dengan ID karyawan dan PIN Anda.</p>
+    <form id="loginForm" autocomplete="off">
+      <label for="inId">ID Karyawan</label>
+      <input id="inId" required autocapitalize="characters" placeholder="contoh: K001">
+      <label for="inPin">PIN</label>
+      <input id="inPin" type="password" inputmode="numeric" required placeholder="PIN">
+      <div class="err" id="loginErr"></div>
+      <button id="loginBtn" type="submit" style="margin-top:8px">Masuk</button>
+    </form>
+  </section>
+
+  <!-- HOME -->
+  <section id="homeView" class="hidden">
+    <div class="card">
+      <div class="top">
+        <div>
+          <h1 id="uName">-</h1>
+          <div class="muted">ID <span id="uId">-</span> · Cabang <span id="uCab">-</span></div>
+        </div>
+        <button class="ghost small" id="logoutBtn">Keluar</button>
+      </div>
+      <div class="clock">
+        <div class="t" id="clockT">--:--:--</div>
+        <div class="muted" id="clockD">-</div>
+      </div>
+
+      <div class="loc">
+        <span class="dot" id="locDot"></span>
+        <div style="flex:1">
+          <div id="locMain" style="font-weight:600">Mencari lokasi…</div>
+          <div class="muted" id="locSub">Izinkan akses lokasi pada browser.</div>
+        </div>
+        <button class="ghost small" id="locRetry">Segarkan</button>
+      </div>
+
+      <div class="row btns">
+        <button class="in" id="btnMasuk" disabled>Absen Masuk</button>
+        <button class="out" id="btnPulang" disabled>Absen Pulang</button>
+      </div>
+      <div class="muted" id="todayInfo" style="margin-top:10px"></div>
+    </div>
+
+    <div class="card">
+      <h2>Tidak hadir (Sakit / Izin / Cuti / Dinas)</h2>
+      <form id="izinForm">
+        <select id="izinJenis">
+          <option>Sakit</option><option>Izin</option><option>Cuti</option><option>Dinas</option>
+        </select>
+        <label for="izinKet">Keterangan</label>
+        <textarea id="izinKet" rows="2" maxlength="300" placeholder="Tuliskan alasan singkat" required></textarea>
+        <button id="izinBtn" type="submit" style="margin-top:10px">Kirim</button>
+      </form>
+      <div class="muted" style="margin-top:8px">Pengajuan ini tidak memerlukan lokasi.</div>
+    </div>
+
+    <div class="card">
+      <h2>Riwayat terakhir</h2>
+      <ul class="hist" id="hist"><li class="muted">Memuat…</li></ul>
+    </div>
+  </section>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script>
+/* ============ KONFIGURASI ============ */
+// Tempel URL Web App Google Apps Script (berakhiran /exec) di sini:
+const API_URL = 'GANTI_DENGAN_URL_WEB_APP_ANDA';
+
+/* ============ UTIL ============ */
+const $ = id => document.getElementById(id);
+let session = null;        // {id, pin}
+let state = { lokasi: null, today: [] };
+let pos = null;            // {lat, lng, acc}
+let watchId = null;
+let busy = false;
+
+function lsGet(k){ try { return localStorage.getItem(k); } catch(e){ return null; } }
+function lsSet(k,v){ try { localStorage.setItem(k,v); } catch(e){} }
+function lsDel(k){ try { localStorage.removeItem(k); } catch(e){} }
+
+function toast(msg, type){
+  const t = $('toast');
+  t.textContent = msg;
+  t.className = 'toast ' + (type === 'err' ? 'err' : 'ok');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => t.classList.add('hidden'), 4000);
+}
+
+async function api(payload){
+  if (API_URL.indexOf('GANTI') === 0) throw new Error('API_URL belum diisi di file HTML.');
+  let res;
+  try {
+    // text/plain menghindari preflight CORS pada Apps Script
+    res = await fetch(API_URL, { method: 'POST', body: JSON.stringify(payload) });
+  } catch (e) {
+    throw new Error('Tidak dapat terhubung ke server. Periksa koneksi internet.');
+  }
+  let data;
+  try { data = await res.json(); } catch (e) { throw new Error('Respons server tidak valid.'); }
+  if (!data.ok) throw new Error(data.error || 'Terjadi kesalahan');
+  return data;
+}
+
+function haversine(lat1, lon1, lat2, lon2){
+  const R = 6371000, rad = Math.PI / 180;
+  const dLat = (lat2 - lat1) * rad, dLon = (lon2 - lon1) * rad;
+  const a = Math.sin(dLat/2) ** 2 + Math.cos(lat1*rad) * Math.cos(lat2*rad) * Math.sin(dLon/2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+/* ============ JAM ============ */
+function tick(){
+  const now = new Date();
+  $('clockT').textContent = now.toLocaleTimeString('id-ID', { timeZone: 'Asia/Jakarta', hour12: false }).replace(/\./g, ':');
+  $('clockD').textContent = now.toLocaleDateString('id-ID', { timeZone: 'Asia/Jakarta', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+}
+setInterval(tick, 1000); tick();
+
+/* ============ LOGIN ============ */
+function show(view){
+  $('loginView').classList.toggle('hidden', view !== 'login');
+  $('homeView').classList.toggle('hidden', view !== 'home');
+}
+
+$('loginForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  $('loginErr').textContent = '';
+  $('loginBtn').disabled = true; $('loginBtn').textContent = 'Memeriksa…';
+  try {
+    const id = $('inId').value.trim(), pin = $('inPin').value.trim();
+    const data = await api({ action: 'login', id, pin });
+    session = { id, pin };
+    lsSet('absen_session', JSON.stringify(session));
+    enterHome(data);
+  } catch (err) {
+    $('loginErr').textContent = err.message;
+  } finally {
+    $('loginBtn').disabled = false; $('loginBtn').textContent = 'Masuk';
+  }
+});
+
+$('logoutBtn').addEventListener('click', () => {
+  lsDel('absen_session');
+  session = null;
+  stopWatch();
+  $('inPin').value = '';
+  show('login');
+});
+
+function enterHome(data){
+  $('uName').textContent = data.user.nama;
+  $('uId').textContent = data.user.id;
+  $('uCab').textContent = data.user.cabang;
+  applyState(data);
+  show('home');
+  startWatch();
+  loadRiwayat();
+}
+
+function applyState(data){
+  state.lokasi = data.lokasi;
+  state.today = data.today || [];
+  renderToday();
+  renderButtons();
+  renderLocation();
+}
+
+async function refreshStatus(){
+  const data = await api({ action: 'status', id: session.id, pin: session.pin });
+  applyState(data);
+}
+
+/* ============ LOKASI ============ */
+function startWatch(){
+  stopWatch();
+  if (!navigator.geolocation){
+    setLoc('bad', 'Browser tidak mendukung GPS', 'Gunakan browser lain (Chrome/Safari).');
+    return;
+  }
+  setLoc('warn', 'Mencari lokasi…', 'Izinkan akses lokasi pada browser.');
+  watchId = navigator.geolocation.watchPosition(p => {
+    pos = { lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy };
+    renderLocation(); renderButtons();
+  }, geoError, { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 });
+}
+
+function stopWatch(){
+  if (watchId !== null && navigator.geolocation) navigator.geolocation.clearWatch(watchId);
+  watchId = null; pos = null;
+}
+
+function geoError(err){
+  pos = null;
+  const msg = {
+    1: ['Akses lokasi ditolak', 'Aktifkan izin lokasi untuk situs ini di pengaturan browser, lalu tekan Segarkan.'],
+    2: ['Lokasi tidak tersedia', 'Pastikan GPS/Location Services aktif.'],
+    3: ['Waktu pencarian lokasi habis', 'Coba pindah ke area terbuka lalu tekan Segarkan.']
+  }[err.code] || ['Gagal mendapatkan lokasi', err.message];
+  setLoc('bad', msg[0], msg[1]);
+  renderButtons();
+}
+
+function setLoc(cls, main, sub){
+  $('locDot').className = 'dot ' + cls;
+  $('locMain').textContent = main;
+  $('locSub').textContent = sub;
+}
+
+function insideRadius(){
+  if (!pos || !state.lokasi) return false;
+  return haversine(pos.lat, pos.lng, state.lokasi.lat, state.lokasi.lng) <= state.lokasi.radius;
+}
+
+function renderLocation(){
+  if (!pos){ return; }
+  const lok = state.lokasi;
+  const accTxt = 'Akurasi GPS ± ' + Math.round(pos.acc) + ' m';
+  if (!lok){ setLoc('warn', 'Lokasi cabang belum diatur', accTxt); return; }
+  const d = Math.round(haversine(pos.lat, pos.lng, lok.lat, lok.lng));
+  if (d <= lok.radius){
+    setLoc('ok', 'Dalam radius absen', d + ' m dari lokasi (maks ' + lok.radius + ' m) · ' + accTxt);
+  } else {
+    setLoc('bad', 'Di luar radius absen', d + ' m dari lokasi (maks ' + lok.radius + ' m) · ' + accTxt);
+  }
+}
+
+$('locRetry').addEventListener('click', startWatch);
+
+/* ============ TOMBOL ============ */
+function has(jenis){ return state.today.some(r => r.jenis === jenis); }
+function hasIzin(){ return state.today.some(r => ['Sakit','Izin','Cuti','Dinas'].includes(r.jenis)); }
+
+function renderButtons(){
+  const ok = insideRadius() && !busy;
+  $('btnMasuk').disabled = !(ok && !has('Masuk') && !hasIzin());
+  $('btnPulang').disabled = !(ok && has('Masuk') && !has('Pulang') && !hasIzin());
+  $('izinBtn').disabled = busy || state.today.length > 0;
+}
+
+function renderToday(){
+  if (!state.today.length){ $('todayInfo').textContent = 'Belum ada catatan absensi hari ini.'; return; }
+  $('todayInfo').textContent = 'Hari ini: ' + state.today.map(r => r.jenis + ' ' + r.jam.slice(0,5)).join(' · ');
+}
+
+function currentPosition(){
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) return reject(new Error('Browser tidak mendukung GPS'));
+    navigator.geolocation.getCurrentPosition(
+      p => resolve({ lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy }),
+      err => reject(new Error(err.code === 1 ? 'Akses lokasi ditolak. Izinkan lokasi di pengaturan browser.' : 'Gagal mendapatkan lokasi. Pastikan GPS aktif.')),
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 }
+    );
+  });
+}
+
+async function doAbsen(jenis){
+  busy = true; renderButtons();
+  try {
+    const p = await currentPosition();
+    pos = p; renderLocation();
+    const res = await api({ action: 'absen', id: session.id, pin: session.pin, jenis,
+      lat: p.lat, lng: p.lng, acc: p.acc });
+    toast(res.pesan, 'ok');
+    await refreshStatus();
+    loadRiwayat();
+  } catch (err) {
+    toast(err.message, 'err');
+  } finally {
+    busy = false; renderButtons();
+  }
+}
+
+$('btnMasuk').addEventListener('click', () => doAbsen('Masuk'));
+$('btnPulang').addEventListener('click', () => doAbsen('Pulang'));
+
+$('izinForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  busy = true; renderButtons();
+  try {
+    const res = await api({ action: 'absen', id: session.id, pin: session.pin,
+      jenis: $('izinJenis').value, keterangan: $('izinKet').value.trim() });
+    toast(res.pesan, 'ok');
+    $('izinKet').value = '';
+    await refreshStatus();
+    loadRiwayat();
+  } catch (err) {
+    toast(err.message, 'err');
+  } finally {
+    busy = false; renderButtons();
+  }
+});
+
+/* ============ RIWAYAT ============ */
+async function loadRiwayat(){
+  const ul = $('hist');
+  try {
+    const data = await api({ action: 'riwayat', id: session.id, pin: session.pin });
+    ul.textContent = '';
+    if (!data.riwayat.length){
+      const li = document.createElement('li'); li.className = 'muted'; li.textContent = 'Belum ada riwayat.'; ul.appendChild(li); return;
+    }
+    data.riwayat.forEach(r => {
+      const li = document.createElement('li');
+      const left = document.createElement('div');
+      const t = document.createElement('div'); t.style.fontWeight = '600'; t.textContent = r.jenis + ' · ' + r.jam.slice(0,5);
+      const s = document.createElement('div'); s.className = 'muted';
+      s.textContent = r.tanggal + (r.jarak !== '' ? ' · ' + r.jarak + ' m' : '') + (r.keterangan ? ' · ' + r.keterangan : '');
+      left.appendChild(t); left.appendChild(s);
+      const b = document.createElement('span');
+      b.className = 'badge ' + (r.status === 'Tepat Waktu' ? 'good' : r.status === 'Terlambat' ? 'late' : r.status === 'Diajukan' ? 'info' : '');
+      b.textContent = r.status;
+      li.appendChild(left); li.appendChild(b); ul.appendChild(li);
+    });
+  } catch (err) {
+    ul.textContent = '';
+    const li = document.createElement('li'); li.className = 'muted'; li.textContent = 'Gagal memuat riwayat: ' + err.message; ul.appendChild(li);
+  }
+}
+
+/* ============ INIT ============ */
+(async function init(){
+  const saved = lsGet('absen_session');
+  if (saved){
+    try {
+      session = JSON.parse(saved);
+      const data = await api({ action: 'login', id: session.id, pin: session.pin });
+      enterHome(data);
+      return;
+    } catch (e) { lsDel('absen_session'); session = null; }
+  }
+  show('login');
+})();
+</script>
+</body>
+</html>
