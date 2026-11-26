@@ -120,7 +120,7 @@
 <script>
 /* ============ KONFIGURASI ============ */
 // Tempel URL Web App Google Apps Script (berakhiran /exec) di sini:
-const API_URL = 'https://script.google.com/macros/s/AKfycbwLspBVQHTrQ2U0XY1VC05l_9OqKv3JR-JVSdDDLN4pTBd2y-zTGRukjFTT3mWFCaBLig/exec';
+const API_URL = 'GANTI_DENGAN_URL_WEB_APP_ANDA';
 
 /* ============ UTIL ============ */
 const $ = id => document.getElementById(id);
@@ -129,6 +129,7 @@ let state = { lokasi: null, today: [] };
 let pos = null;            // {lat, lng, acc}
 let watchId = null;
 let busy = false;
+let lastFix = 0, lastNative = 0;   // waktu fix GPS terakhir (umum / dari aplikasi Kodular)
 
 function lsGet(k){ try { return localStorage.getItem(k); } catch(e){ return null; } }
 function lsSet(k,v){ try { localStorage.setItem(k,v); } catch(e){} }
@@ -229,13 +230,19 @@ async function refreshStatus(){
 /* ============ LOKASI ============ */
 function startWatch(){
   stopWatch();
+  const inApp = !!window.AppInventor;   // dibuka di dalam aplikasi Kodular
+  if (inApp) setTimeout(() => {
+    if (!pos && session) setLoc('bad', 'Lokasi belum diterima', 'Aktifkan GPS dan beri izin lokasi untuk aplikasi, lalu tekan Segarkan.');
+  }, 15000);
   if (!navigator.geolocation){
-    setLoc('bad', 'Browser tidak mendukung GPS', 'Gunakan browser lain (Chrome/Safari).');
+    if (inApp) setLoc('warn', 'Menunggu lokasi dari aplikasi…', 'Pastikan GPS aktif dan izin lokasi aplikasi diberikan.');
+    else setLoc('bad', 'Browser tidak mendukung GPS', 'Gunakan browser lain (Chrome/Safari).');
     return;
   }
-  setLoc('warn', 'Mencari lokasi…', 'Izinkan akses lokasi pada browser.');
+  setLoc('warn', 'Mencari lokasi…', inApp ? 'Pastikan GPS aktif dan izin lokasi aplikasi diberikan.' : 'Izinkan akses lokasi pada browser.');
   watchId = navigator.geolocation.watchPosition(p => {
     pos = { lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy };
+    lastFix = Date.now();
     renderLocation(); renderButtons();
   }, geoError, { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 });
 }
@@ -246,6 +253,7 @@ function stopWatch(){
 }
 
 function geoError(err){
+  if (Date.now() - lastNative < 10000) return;   // lokasi dari aplikasi masih segar, abaikan error browser
   pos = null;
   const msg = {
     1: ['Akses lokasi ditolak', 'Aktifkan izin lokasi untuk situs ini di pengaturan browser, lalu tekan Segarkan.'],
@@ -282,6 +290,27 @@ function renderLocation(){
 
 $('locRetry').addEventListener('click', startWatch);
 
+/* ---- Jembatan lokasi dari aplikasi Kodular ----
+   Kodular mengirim "lat,lng,akurasi" lewat WebViewString (dibaca berkala di sini),
+   atau memanggil setNativeLocation(lat, lng, akurasi) lewat RunJavaScript. */
+function setNativeLocation(lat, lng, acc){
+  lat = parseFloat(lat); lng = parseFloat(lng); acc = parseFloat(acc);
+  if (!isFinite(lat) || !isFinite(lng) || (lat === 0 && lng === 0)) return;
+  pos = { lat: lat, lng: lng, acc: isFinite(acc) ? acc : 0 };
+  lastFix = lastNative = Date.now();
+  if (!session) return;
+  renderLocation(); renderButtons();
+}
+window.setNativeLocation = setNativeLocation;
+setInterval(() => {
+  try {
+    if (window.AppInventor && typeof window.AppInventor.getWebViewString === 'function'){
+      const p = String(window.AppInventor.getWebViewString() || '').split(',');
+      if (p.length >= 2) setNativeLocation(p[0], p[1], p[2]);
+    }
+  } catch (e) {}
+}, 1500);
+
 /* ============ TOMBOL ============ */
 function has(jenis){ return state.today.some(r => r.jenis === jenis); }
 function hasIzin(){ return state.today.some(r => ['Sakit','Izin','Cuti','Dinas'].includes(r.jenis)); }
@@ -299,6 +328,8 @@ function renderToday(){
 }
 
 function currentPosition(){
+  // Di aplikasi Kodular: pakai lokasi terbaru dari LocationSensor
+  if (pos && lastNative && Date.now() - lastNative < 15000) return Promise.resolve(pos);
   return new Promise((resolve, reject) => {
     if (!navigator.geolocation) return reject(new Error('Browser tidak mendukung GPS'));
     navigator.geolocation.getCurrentPosition(
